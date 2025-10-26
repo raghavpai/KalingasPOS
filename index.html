@@ -1,0 +1,1477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalingas POS Demo</title>
+    <!--
+        This single page application demonstrates a simplified restaurant
+        point‑of‑sale system for a quick‑service restaurant.  It models
+        four distinct user roles: Owner, Counter, Kitchen and Cash
+        Counter.  Each role appears as a tab along the top of the page
+        and reveals its own workflow when selected.  All state is kept
+        in JavaScript objects within the browser; there is no backend
+        storage or network dependency.  Responsive CSS ensures the
+        layout adapts gracefully from desktop widths down to narrow
+        mobile screens.
+
+        The menu has been seeded with a small sampling of dishes from
+        the Kalingas restaurant website for demonstration.  The Owner
+        tab allows you to add additional items or change existing
+        entries.  When ordering from the Counter tab you can create
+        tokens, attach customer details and add items from any
+        category.  Kitchen staff see pending kitchen items grouped by
+        token and can mark them fulfilled or unable.  The Cash Counter
+        tab provides a searchable list of tokens awaiting payment,
+        computes tax inclusive totals (with SGST/CGST split) and
+        records payments.
+    -->
+    <style>
+        :root {
+            --primary: #2a6fa3;
+            --secondary: #f5f5f5;
+            --accent: #ee6c4d;
+            --success: #4caf50;
+            --danger: #f44336;
+            --border-radius: 4px;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: var(--secondary);
+            color: #333;
+        }
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+        nav.tabs {
+            display: flex;
+            justify-content: space-around;
+            background: #fff;
+            border-bottom: 1px solid #ccc;
+            flex-wrap: wrap;
+        }
+        nav.tabs button {
+            flex: 1 1 25%;
+            padding: 0.75rem;
+            border: none;
+            background: none;
+            font-weight: bold;
+            cursor: pointer;
+            border-bottom: 4px solid transparent;
+        }
+        nav.tabs button.active {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+        .tab-pane {
+            display: none;
+            padding: 1rem;
+        }
+        .tab-pane.active {
+            display: block;
+        }
+        /* Form elements */
+        label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 0.4rem;
+            margin-bottom: 0.75rem;
+            border: 1px solid #ccc;
+            border-radius: var(--border-radius);
+        }
+        button.action {
+            padding: 0.5rem 1rem;
+            margin-right: 0.5rem;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            color: white;
+        }
+        button.action.primary {
+            background: var(--primary);
+        }
+        button.action.secondary {
+            background: #777;
+        }
+        button.action.success {
+            background: var(--success);
+        }
+        button.action.danger {
+            background: var(--danger);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        th, td {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background: #f0f0f0;
+        }
+        @media (max-width: 600px) {
+            nav.tabs button {
+                flex: 1 1 50%;
+            }
+        }
+
+        /* Modal overlay for pop‑up dialogs */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-box {
+            background: #fff;
+            padding: 1rem;
+            border-radius: var(--border-radius);
+            max-width: 90%;
+            max-height: 90%;
+            overflow: auto;
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: transparent;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        /* Card styling for kitchen and lists */
+        .card {
+            border: 1px solid #ccc;
+            border-radius: var(--border-radius);
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            background: #fff;
+        }
+        .card h4 {
+            margin: 0 0 0.5rem 0;
+        }
+        .card table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .card table td, .card table th {
+            padding: 0.25rem;
+            border: 1px solid #ddd;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Kalingas POS Demo</h1>
+    </header>
+    <nav class="tabs">
+        <button id="tab-owner" class="active" data-target="owner">Owner</button>
+        <button id="tab-counter" data-target="counter">Counter</button>
+        <button id="tab-kitchen" data-target="kitchen">Kitchen</button>
+        <button id="tab-cash" data-target="cash">Cash Counter</button>
+    </nav>
+
+    <!-- Owner Tab: Manage menu and configuration -->
+    <section id="owner" class="tab-pane active">
+        <h2>Owner / Admin Console</h2>
+        <p>Use this interface to manage the menu catalogue.  Add new items, edit existing ones and configure whether an item is prepared at the counter or in the kitchen.</p>
+        <div style="margin-bottom:1rem;">
+            <button class="action primary" onclick="openItemModal(null)">Add Item</button>
+        </div>
+        <div>
+            <h3>Menu Items</h3>
+            <table id="items-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Price</th>
+                        <th>GST</th>
+                        <th>Parcel Charge</th>
+                        <th>Source</th>
+                        <th>Category</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <!-- Orders & Invoices list for the owner -->
+        <div style="margin-top:2rem;">
+            <h3>Orders &amp; Invoices</h3>
+            <p>Below is a chronological list of all orders taken at the counter.  You can edit the order lines or view
+            the generated invoice once payment has been made.  The newest orders appear at the top.</p>
+            <div id="owner-order-list"></div>
+        </div>
+    </section>
+
+    <!-- Counter Tab: Token creation and order capture -->
+    <section id="counter" class="tab-pane">
+        <h2>Counter / Orders</h2>
+        <div>
+            <button class="action primary" onclick="openCounterModal(null)">New Order</button>
+        </div>
+        <!-- List of existing orders -->
+        <div id="order-list" style="margin-top:1rem;"></div>
+        <!-- Hidden container for the order form to be moved into a modal -->
+        <div id="counter-order-container" style="display:none;">
+            <div id="counter-order" style="display:none; margin-top:1rem;">
+                <h3 id="counter-order-heading">Token Order</h3>
+                <form id="counter-form" onsubmit="event.preventDefault(); addItemToToken();">
+                    <label for="customer-name">Customer Name (optional)</label>
+                    <input type="text" id="customer-name">
+                    <label for="customer-phone">Customer Phone (optional)</label>
+                    <input type="text" id="customer-phone" pattern="[0-9]{10}" placeholder="10-digit mobile">
+                    <!-- Toggle to mark the order as a parcel/takeaway.  When checked the parcel charges for each item will apply. -->
+                    <label style="display:flex; align-items:center; margin-top:0.5rem;">
+                        <input type="checkbox" id="parcel-toggle" onchange="setParcelFlag()" style="margin-right:0.5rem;">
+                        Parcel (Takeaway)
+                    </label>
+                    <hr>
+                    <label for="category-select">Category</label>
+                    <select id="category-select" onchange="populateItemSelect()"></select>
+                    <label for="item-select">Item</label>
+                    <select id="item-select"></select>
+                    <label for="item-qty">Quantity</label>
+                    <input type="number" id="item-qty" min="1" value="1">
+                    <button type="submit" class="action primary">Add Item</button>
+                </form>
+                <div style="margin-top:1rem;">
+                    <h4>Order Lines</h4>
+                    <div style="display:flex;flex-wrap:wrap;gap:1rem;">
+                        <div style="flex:1;min-width:250px;">
+                            <h5>Counter Items</h5>
+                            <table id="counter-lines-table">
+                                <thead>
+                                    <tr><th>Item</th><th>Qty</th><th>Price</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div style="flex:1;min-width:250px;">
+                            <h5>Kitchen Items</h5>
+                            <table id="kitchen-lines-table">
+                                <thead>
+                                    <tr><th>Item</th><th>Qty</th><th>Price</th><th>Status</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Kitchen Tab: Kitchen Display System -->
+    <section id="kitchen" class="tab-pane">
+        <h2>Kitchen Display System</h2>
+        <p>Pending and in‑progress kitchen items appear here.  Mark them fulfilled when cooked, or unable if unavailable.</p>
+        <!-- Container for kitchen order cards populated via JS -->
+        <div id="kds-cards"></div>
+    </section>
+
+    <!-- Cash Counter Tab: Billing and Payment -->
+    <section id="cash" class="tab-pane">
+        <h2>Cash Counter / Billing</h2>
+        <!-- List of invoices/orders to be billed, newest at top -->
+        <div id="invoice-list" style="margin-top:1rem;"></div>
+        <!-- Hidden container for the billing view; this content will be moved into a modal when making payment -->
+        <div id="billing-container" style="display:none;">
+            <div id="billing-view" style="margin-top:1rem; display:none;">
+                <h3>Billing for Token <span id="billing-token-number"></span></h3>
+                <table id="billing-lines-table">
+                    <thead>
+                        <tr><th>Item</th><th>Qty</th><th>Price</th><th>Status</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div>
+                    <label for="discount">Discount (₹ or %)</label>
+                    <input type="text" id="discount" placeholder="e.g. 10 or 10%" oninput="updateBillingTotals()">
+                </div>
+                <table id="totals-table" style="margin-top:1rem;">
+                    <tbody>
+                        <tr><td>Base Amount</td><td id="total-base">₹0.00</td></tr>
+                        <tr><td>SGST</td><td id="total-sgst">₹0.00</td></tr>
+                        <tr><td>CGST</td><td id="total-cgst">₹0.00</td></tr>
+                        <!-- Parcel charges row shows the sum of packaging fees for takeaway orders -->
+                        <tr><td>Parcel Charges</td><td id="total-parcel">₹0.00</td></tr>
+                        <tr><td>Discount</td><td id="total-discount">₹0.00</td></tr>
+                        <tr><th>Total Payable</th><th id="total-payable">₹0.00</th></tr>
+                    </tbody>
+                </table>
+                <div style="margin-top:1rem;">
+                    <label for="payment-method">Payment Method</label>
+                    <select id="payment-method">
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="upi">UPI</option>
+                    </select>
+                    <label for="payment-amount">Amount Paid (₹)</label>
+                    <input type="number" id="payment-amount" min="0" step="0.01">
+                    <button class="action success" onclick="makePayment()">Make Payment</button>
+                </div>
+                <div id="receipt" style="display:none; margin-top:1rem; border:1px solid #ccc; padding:1rem;">
+                    <h4>Receipt</h4>
+                    <div id="receipt-content"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+    /*
+      In‑memory data structures.  Items and tokens are stored
+      in arrays.  Each item has an auto‑generated id, name,
+      price, gstRate, source (counter/kitchen) and category.
+      Tokens contain order lines, each referencing an itemId.
+      Kitchen lines are derived from token order lines whose
+      source is 'kitchen'.
+    */
+    let categories = ['Sweets','Breakfast','Veg Main Course','Non‑Veg Main Course','Snacks','Dry Snacks'];
+    let items = [];
+    let tokens = [];
+    let nextTokenNumber = 1;
+    let nextItemId = 1;
+    let invoiceCounter = 1;
+    
+    // Seed menu with sample items from Kalingas
+    function seedMenu() {
+        const seed = [
+            // Each seed item now also includes a parcelCharge representing the cost of packaging for takeaway orders.
+            {name:'Chhena Poda', price:40, gst:5, source:'counter', category:'Sweets', parcelCharge:5},
+            {name:'Rabidi', price:45, gst:5, source:'counter', category:'Sweets', parcelCharge:5},
+            {name:'Ras Malai', price:40, gst:5, source:'counter', category:'Sweets', parcelCharge:5},
+            {name:'Idli Ghuguni', price:30, gst:5, source:'counter', category:'Breakfast', parcelCharge:5},
+            {name:'Puri Aludum', price:40, gst:5, source:'counter', category:'Breakfast', parcelCharge:5},
+            {name:'Dal Fry', price:55, gst:12, source:'kitchen', category:'Veg Main Course', parcelCharge:5},
+            {name:'Paneer Butter Masala', price:110, gst:12, source:'kitchen', category:'Veg Main Course', parcelCharge:5},
+            {name:'Chicken Kassa Masala', price:115, gst:18, source:'kitchen', category:'Non‑Veg Main Course', parcelCharge:5},
+            {name:'Fish Curry', price:70, gst:18, source:'kitchen', category:'Non‑Veg Main Course', parcelCharge:5},
+            {name:'Dahi Bara Alu Dum', price:35, gst:5, source:'counter', category:'Snacks', parcelCharge:5},
+            {name:'Egg Roll', price:60, gst:12, source:'counter', category:'Snacks', parcelCharge:5},
+            {name:'Mixture‑Spicy (300g)', price:60, gst:5, source:'counter', category:'Dry Snacks', parcelCharge:5},
+            {name:'Nimki (200g)', price:50, gst:5, source:'counter', category:'Dry Snacks', parcelCharge:5}
+        ];
+        seed.forEach(item => {
+            item.id = 'item' + nextItemId++;
+            items.push(item);
+        });
+    }
+
+    /* Utility functions */
+    function formatCurrency(val) {
+        return '₹' + val.toFixed(2);
+    }
+    function computeLineBreakdown(priceIncl, qty, gstRate) {
+        // Given inclusive price and quantity, compute base, sgst, cgst
+        const totalIncl = priceIncl * qty;
+        const base = Math.round((totalIncl * 100 / (100 + gstRate)) * 100) / 100;
+        const gstTotal = parseFloat((totalIncl - base).toFixed(2));
+        const sgst = Math.round((gstTotal / 2) * 100) / 100;
+        const cgst = parseFloat((gstTotal - sgst).toFixed(2));
+        return {base, sgst, cgst, total: totalIncl};
+    }
+
+    /**
+     * Build an HTML representation of a restaurant invoice closely
+     * resembling the printed receipt from Kalingas.  It includes
+     * company details, order metadata, a list of items with
+     * quantities and amounts, and a summary of taxes, parcel charges,
+     * round‑off and grand total.  Totals are derived from the
+     * invoice lines stored on the token.  CGST and SGST rates are
+     * calculated based on the ratio of tax collected to the base
+     * amount so mixed GST rates are handled gracefully.
+     *
+     * @param {Object} token The token whose invoice should be
+     * rendered.  The token must already have an invoice property
+     * attached (set during makePayment()).
+     * @returns {string} HTML markup representing the invoice.
+     */
+    function generateInvoiceHTML(token) {
+        const inv = token.invoice;
+        if (!inv) return '';
+        // Parse date and time separately for display
+        const dt = new Date(inv.created);
+        // Format date as dd/mm/yy to match the printed invoice (2-digit year)
+        const dateStr = dt.toLocaleDateString('en-IN', {
+            day: '2-digit', month: '2-digit', year: '2-digit'
+        });
+        // Use 24‑hour format for time (hh:mm) to mirror the sample receipt
+        const timeStr = dt.toLocaleTimeString('en-IN', {
+            hour: '2-digit', minute: '2-digit', hour12: false
+        });
+        const isParcel = token.isParcel;
+        // Compute totals across all lines
+        let totalQty = 0;
+        let inclTotal = 0;
+        let baseTotal = 0;
+        let sgstTotal = 0;
+        let cgstTotal = 0;
+        inv.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if (!item) return;
+            const qty = line.qty;
+            totalQty += qty;
+            const amount = item.price * qty;
+            inclTotal += amount;
+            const breakdown = computeLineBreakdown(item.price, qty, item.gst);
+            baseTotal += breakdown.base;
+            sgstTotal += breakdown.sgst;
+            cgstTotal += breakdown.cgst;
+        });
+        // Parcel and discount values from invoice metadata
+        const parcelTotal = inv.parcelTotal || 0;
+        const discountVal = inv.discount || 0;
+        // Compute the final total before rounding
+        const finalTotal = baseTotal + sgstTotal + cgstTotal + parcelTotal - discountVal;
+        // Round to nearest rupee for display
+        const roundedTotal = Math.round(finalTotal);
+        // Difference between rounded and actual total (could be positive or negative)
+        const roundOff = parseFloat((roundedTotal - finalTotal).toFixed(2));
+        // Compute effective GST rates based on total base
+        const sgstRate = baseTotal > 0 ? (sgstTotal / baseTotal * 100) : 0;
+        const cgstRate = baseTotal > 0 ? (cgstTotal / baseTotal * 100) : 0;
+        // Build the HTML string step by step
+        let html = '';
+        // Header with business details
+        html += '<div style="text-align:center;">';
+        // Remove the word "Duplicate" as per user request
+        html += '<strong>Kalingas</strong><br>';
+        html += '#399,16th Main,2nd Stage,BTM Layout,Bangalore-560076<br>';
+        html += 'Ph: 080-42038180<br>';
+        html += 'GSTIN: 29AIQPP6219E1ZU';
+        html += '</div>';
+        html += '<hr>';
+        // Order and customer info
+        html += '<div style="display:flex; justify-content:space-between; font-size:0.9em;">';
+        html += '<div><strong>Name:</strong> ' + (token.customerName || '') + '</div>';
+        html += '<div><strong>' + (isParcel ? 'Pick Up' : 'Dine In') + '</strong></div>';
+        html += '</div>';
+        html += '<div style="display:flex; justify-content:space-between; font-size:0.9em; margin-top:0.2rem;">';
+        html += '<div><strong>Date:</strong> ' + dateStr + ' ' + timeStr + '</div>';
+        html += '<div><strong>Bill No.:</strong> ' + inv.number + '</div>';
+        html += '</div>';
+        html += '<div style="font-size:0.9em; margin-top:0.2rem;"><strong>Cashier:</strong> biller</div>';
+        // Customer phone line if provided
+        html += '<div style="font-size:0.9em; margin-top:0.2rem;"><strong>Phone:</strong> ' + (token.customerPhone || '') + '</div>';
+        // Items table
+        html += '<table style="width:100%; margin-top:0.5rem; border-collapse:collapse; font-size:0.9em;">';
+        html += '<thead><tr>';
+        html += '<th style="text-align:left; border-bottom:1px dashed #000;">Item</th>';
+        html += '<th style="text-align:center; border-bottom:1px dashed #000;">Qty.</th>';
+        html += '<th style="text-align:right; border-bottom:1px dashed #000;">Price</th>';
+        html += '<th style="text-align:right; border-bottom:1px dashed #000;">Amount</th>';
+        html += '</tr></thead><tbody>';
+        inv.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if (!item) return;
+            const amount = item.price * line.qty;
+            html += '<tr>';
+            html += '<td>' + item.name + '</td>';
+            html += '<td style="text-align:center;">' + line.qty + '</td>';
+            html += '<td style="text-align:right;">' + formatCurrency(item.price) + '</td>';
+            html += '<td style="text-align:right;">' + formatCurrency(amount) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        html += '<hr>';
+        // Totals summary
+        html += '<div style="font-size:0.9em;">';
+        html += '<p><strong>Total Qty:</strong> ' + totalQty + ' &nbsp;&nbsp; <strong>Sub Total:</strong> ' + formatCurrency(inclTotal) + '</p>';
+        if (parcelTotal > 0) {
+            html += '<p><strong>Parcel Charge:</strong> ' + formatCurrency(parcelTotal) + '</p>';
+        }
+        // Display CGST and SGST with computed percentage
+        html += '<p><strong>CGST ' + sgstRate.toFixed(1) + '%:</strong> ' + formatCurrency(sgstTotal) + '</p>';
+        html += '<p><strong>SGST ' + cgstRate.toFixed(1) + '%:</strong> ' + formatCurrency(cgstTotal) + '</p>';
+        if (discountVal > 0) {
+            html += '<p><strong>Discount:</strong> -' + formatCurrency(discountVal) + '</p>';
+        }
+        html += '<p><strong>Round off:</strong> ' + (roundOff >= 0 ? '+' : '') + roundOff.toFixed(2) + '</p>';
+        html += '<p style="font-size:1.1em;"><strong>Grand Total &nbsp; ' + formatCurrency(roundedTotal) + '</strong></p>';
+        html += '</div>';
+        html += '<hr>';
+        html += '<div style="text-align:center; font-size:0.8em;">';
+        html += 'FSSAI Lic No. 11221334000329<br>';
+        html += '<strong>Thank You Visit Again</strong>';
+        html += '</div>';
+        return html;
+    }
+
+    /* Tab switching logic */
+    document.querySelectorAll('nav.tabs button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('nav.tabs button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const target = btn.getAttribute('data-target');
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.getElementById(target).classList.add('active');
+            // Refresh views when switching
+            if(target === 'owner') {
+                refreshItemsTable();
+                refreshOwnerOrdersList();
+            }
+            if(target === 'counter') updateCounterView();
+            if(target === 'kitchen') refreshKdsTable();
+            if(target === 'cash') refreshInvoiceList();
+        });
+    });
+
+    /* Owner functions */
+    function populateCategoryOptions(selectId) {
+        const sel = document.getElementById(selectId);
+        if(!sel) return;
+        sel.innerHTML = '';
+        categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            sel.appendChild(opt);
+        });
+    }
+    function refreshItemsTable() {
+        // populate category options for forms
+        populateCategoryOptions('item-category');
+        populateCategoryOptions('category-select');
+        const tbody = document.querySelector('#items-table tbody');
+        tbody.innerHTML = '';
+        items.forEach(item => {
+            const tr = document.createElement('tr');
+            // Display parcel charge between GST and Source
+            tr.innerHTML = `
+                <td>${item.name}</td>
+                <td>${formatCurrency(item.price)}</td>
+                <td>${item.gst}%</td>
+                <td>${formatCurrency(item.parcelCharge || 0)}</td>
+                <td>${item.source}</td>
+                <td>${item.category}</td>
+                <td>
+                    <button class="action secondary" onclick="openItemModal('${item.id}')">Edit</button>
+                    <button class="action danger" onclick="deleteItem('${item.id}')">Delete</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+    function clearItemForm() {
+        document.getElementById('item-id').value = '';
+        document.getElementById('item-name').value = '';
+        document.getElementById('item-price').value = '';
+        document.getElementById('item-gst').value = '5';
+        document.getElementById('item-source').value = 'counter';
+        document.getElementById('item-category').selectedIndex = 0;
+    }
+    function saveItem() {
+        const id = document.getElementById('item-id').value;
+        const name = document.getElementById('item-name').value.trim();
+        const price = parseFloat(document.getElementById('item-price').value);
+        const gst = parseInt(document.getElementById('item-gst').value);
+        const source = document.getElementById('item-source').value;
+        const category = document.getElementById('item-category').value;
+        if(!name) return;
+        if(id) {
+            // update existing
+            const item = items.find(i => i.id === id);
+            if(item) {
+                item.name = name;
+                item.price = price;
+                item.gst = gst;
+                item.source = source;
+                item.category = category;
+            }
+        } else {
+            // new item
+            const newItem = {id: 'item' + nextItemId++, name, price, gst, source, category};
+            items.push(newItem);
+        }
+        clearItemForm();
+        refreshItemsTable();
+    }
+    function editItem(id) {
+        const item = items.find(i => i.id === id);
+        if(item) {
+            document.getElementById('item-id').value = item.id;
+            document.getElementById('item-name').value = item.name;
+            document.getElementById('item-price').value = item.price;
+            document.getElementById('item-gst').value = item.gst;
+            document.getElementById('item-source').value = item.source;
+            document.getElementById('item-category').value = item.category;
+        }
+    }
+    function deleteItem(id) {
+        if(confirm('Delete this item?')) {
+            const index = items.findIndex(i => i.id === id);
+            if(index >= 0) items.splice(index,1);
+            refreshItemsTable();
+        }
+    }
+
+    /* Owner order list functions */
+    function refreshOwnerOrdersList() {
+        // Populate the owner-order-list with tokens in descending order by creation time
+        const container = document.getElementById('owner-order-list');
+        if(!container) return;
+        container.innerHTML = '';
+        // Clone tokens and sort by created timestamp descending
+        const sorted = tokens.slice().sort((a,b) => {
+            const ta = a.created || 0;
+            const tb = b.created || 0;
+            return tb - ta;
+        });
+        sorted.forEach(token => {
+            // Skip tokens that have no lines
+            if(token.lines.length === 0) return;
+            const card = document.createElement('div');
+            card.className = 'card';
+            // Header with token number and status
+            const header = document.createElement('h4');
+            header.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+            card.appendChild(header);
+            // Summary: item count and invoice number if available
+            const totalItems = token.lines.reduce((sum,l) => sum + l.qty, 0);
+            const summary = document.createElement('p');
+            let summaryText = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
+            // show parcel/dine‑in status
+            summaryText += ` | ${token.isParcel ? 'Parcel' : 'Dine‑in'}`;
+            if(token.status === 'PAID' && token.invoice) {
+                summaryText += ` | Invoice: ${token.invoice.number}`;
+            }
+            summary.textContent = summaryText;
+            card.appendChild(summary);
+            // Edit order button
+            const btnEdit = document.createElement('button');
+            btnEdit.className = 'action primary';
+            btnEdit.textContent = 'Edit Order';
+            btnEdit.onclick = function() { openCounterModal(token.id); };
+            card.appendChild(btnEdit);
+            // View invoice button if invoice exists
+            if(token.invoice) {
+                const btnView = document.createElement('button');
+                btnView.className = 'action secondary';
+                btnView.style.marginLeft = '0.5rem';
+                btnView.textContent = 'View Invoice';
+                btnView.onclick = function() { viewInvoice(token.id); };
+                card.appendChild(btnView);
+            }
+            container.appendChild(card);
+        });
+    }
+
+    function viewInvoice(tokenId) {
+        // Show a full invoice in a modal with customer details and send buttons
+        const token = tokens.find(t => t.id === tokenId);
+        if(!token || !token.invoice) return;
+        const content = document.getElementById('modal-content');
+        content.innerHTML = '';
+        // Use the formatted invoice generator to build the invoice layout
+        content.innerHTML = generateInvoiceHTML(token);
+        // Append action buttons: send via message, WhatsApp, and download as PDF
+        const btnContainer = document.createElement('div');
+        btnContainer.style.marginTop = '1rem';
+        // Send message button
+        const btnMsg = document.createElement('button');
+        btnMsg.className = 'action primary';
+        btnMsg.textContent = 'Send Invoice Message';
+        btnMsg.onclick = function() { sendInvoiceMessage(token.id); };
+        // WhatsApp button
+        const btnWhats = document.createElement('button');
+        btnWhats.className = 'action success';
+        btnWhats.textContent = 'WhatsApp';
+        btnWhats.style.marginLeft = '0.5rem';
+        btnWhats.onclick = function() { sendInvoiceWhatsApp(token.id); };
+        // Download PDF button
+        const btnDownload = document.createElement('button');
+        // Style the download button like the Send Invoice button (blue)
+        btnDownload.className = 'action primary';
+        btnDownload.style.marginLeft = '0.5rem';
+        btnDownload.textContent = 'Download PDF';
+        btnDownload.onclick = function() { downloadInvoice(token.id); };
+        btnContainer.appendChild(btnMsg);
+        btnContainer.appendChild(btnWhats);
+        btnContainer.appendChild(btnDownload);
+        content.appendChild(btnContainer);
+        showModal();
+    }
+
+    function sendInvoiceMessage(tokenId) {
+        alert('Invoice message sent to the customer (demo).');
+    }
+    function sendInvoiceWhatsApp(tokenId) {
+        alert('WhatsApp invoice sent to the customer (demo).');
+    }
+
+    /**
+     * Open a new window with the invoice HTML and trigger the
+     * browser print dialog.  Users can choose “Save as PDF” to
+     * download the invoice.  This avoids relying on external PDF
+     * libraries while still offering a way to obtain a PDF copy.
+     *
+     * @param {string} tokenId The ID of the token whose invoice
+     * should be downloaded.
+     */
+    function downloadInvoice(tokenId) {
+        const token = tokens.find(t => t.id === tokenId);
+        if (!token || !token.invoice) return;
+        const html = generateInvoiceHTML(token);
+        // Create a new blank window to host the printable invoice
+        const w = window.open('', '_blank');
+        w.document.write('<html><head><title>Invoice ' + token.invoice.number + '</title>');
+        // Minimal styling to centre the invoice on the page
+        w.document.write('<style>body{font-family:Arial,Helvetica,sans-serif;max-width:300px;margin:0 auto;} table{width:100%;}</style>');
+        w.document.write('</head><body>');
+        w.document.write(html);
+        w.document.write('</body></html>');
+        w.document.close();
+        // Trigger print after content loads.  Some browsers block
+        // immediate print calls on newly opened windows, so wait
+        // briefly before invoking print.
+        w.onload = function() {
+            w.focus();
+            try {
+                w.print();
+            } catch (err) {
+                // If print is blocked, the user can use the browser’s
+                // built‑in Save as PDF option from the file menu.
+            }
+        };
+    }
+
+    // Modal helper functions for item management
+    function openItemModal(id) {
+        // Build a modal form for adding or editing an item
+        const overlay = document.getElementById('modal-overlay');
+        const content = document.getElementById('modal-content');
+        content.innerHTML = '';
+        const item = id ? items.find(i => i.id === id) : null;
+        const heading = document.createElement('h3');
+        heading.textContent = id ? 'Edit Item' : 'Add Item';
+        content.appendChild(heading);
+        const form = document.createElement('form');
+        form.onsubmit = function(e) {
+            e.preventDefault();
+            saveItemModal(id);
+        };
+        // Name
+        const nameLabel = document.createElement('label');
+        nameLabel.textContent = 'Item Name';
+        form.appendChild(nameLabel);
+        const nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.id = 'modal-item-name';
+        nameInput.required = true;
+        nameInput.value = item ? item.name : '';
+        form.appendChild(nameInput);
+        // Price
+        const priceLabel = document.createElement('label');
+        priceLabel.textContent = 'Price (₹, GST inclusive)';
+        form.appendChild(priceLabel);
+        const priceInput = document.createElement('input');
+        priceInput.type = 'number';
+        priceInput.step = '0.01';
+        priceInput.min = '0';
+        priceInput.id = 'modal-item-price';
+        priceInput.required = true;
+        priceInput.value = item ? item.price : '';
+        form.appendChild(priceInput);
+        // Parcel charge
+        const parcelLabel = document.createElement('label');
+        parcelLabel.textContent = 'Parcel Charge (₹ per qty)';
+        form.appendChild(parcelLabel);
+        const parcelInput = document.createElement('input');
+        parcelInput.type = 'number';
+        parcelInput.step = '0.01';
+        parcelInput.min = '0';
+        parcelInput.id = 'modal-item-parcel';
+        // default to existing value or zero
+        parcelInput.value = item && item.parcelCharge !== undefined ? item.parcelCharge : 0;
+        form.appendChild(parcelInput);
+        // GST
+        const gstLabel = document.createElement('label');
+        gstLabel.textContent = 'GST Rate (%)';
+        form.appendChild(gstLabel);
+        const gstSelect = document.createElement('select');
+        gstSelect.id = 'modal-item-gst';
+        [5, 12, 18].forEach(val => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = val + '%';
+            if (item && item.gst === val) opt.selected = true;
+            gstSelect.appendChild(opt);
+        });
+        form.appendChild(gstSelect);
+        // Source
+        const sourceLabel = document.createElement('label');
+        sourceLabel.textContent = 'Prepared At';
+        form.appendChild(sourceLabel);
+        const sourceSelect = document.createElement('select');
+        sourceSelect.id = 'modal-item-source';
+        const optCounter = document.createElement('option');
+        optCounter.value = 'counter';
+        optCounter.textContent = 'Counter';
+        const optKitchen = document.createElement('option');
+        optKitchen.value = 'kitchen';
+        optKitchen.textContent = 'Kitchen';
+        if(item) {
+            if(item.source === 'counter') optCounter.selected = true;
+            else optKitchen.selected = true;
+        }
+        sourceSelect.appendChild(optCounter);
+        sourceSelect.appendChild(optKitchen);
+        form.appendChild(sourceSelect);
+        // Category
+        const categoryLabel = document.createElement('label');
+        categoryLabel.textContent = 'Category';
+        form.appendChild(categoryLabel);
+        const categorySelect = document.createElement('select');
+        categorySelect.id = 'modal-item-category';
+        categories.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat;
+            opt.textContent = cat;
+            if(item && item.category === cat) opt.selected = true;
+            categorySelect.appendChild(opt);
+        });
+        form.appendChild(categorySelect);
+        // Buttons
+        const btnSave = document.createElement('button');
+        btnSave.type = 'submit';
+        btnSave.className = 'action primary';
+        btnSave.textContent = id ? 'Update' : 'Add';
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.className = 'action secondary';
+        btnCancel.textContent = 'Cancel';
+        btnCancel.onclick = function() { closeModal(); };
+        form.appendChild(btnSave);
+        form.appendChild(btnCancel);
+        content.appendChild(form);
+        showModal();
+    }
+    function saveItemModal(id) {
+        const name = document.getElementById('modal-item-name').value.trim();
+        const price = parseFloat(document.getElementById('modal-item-price').value);
+        const gst = parseInt(document.getElementById('modal-item-gst').value);
+        const source = document.getElementById('modal-item-source').value;
+        const category = document.getElementById('modal-item-category').value;
+        // Parcel charge for this item; default to 0 if blank
+        const parcelChargeInput = document.getElementById('modal-item-parcel');
+        const parcelCharge = parcelChargeInput ? parseFloat(parcelChargeInput.value) || 0 : 0;
+        if(!name) return;
+        if(id) {
+            const item = items.find(i => i.id === id);
+            if(item) {
+                item.name = name;
+                item.price = price;
+                item.gst = gst;
+                item.source = source;
+                item.category = category;
+                item.parcelCharge = parcelCharge;
+            }
+        } else {
+            const newItem = {id: 'item' + nextItemId++, name, price, gst, source, category, parcelCharge};
+            items.push(newItem);
+        }
+        refreshItemsTable();
+        closeModal();
+    }
+
+    /* Counter functions */
+    let currentTokenId = null;
+    function createNewToken() {
+        const tokenNum = nextTokenNumber++;
+        const id = 'T-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + ('0000'+tokenNum).slice(-4);
+        const token = {id, tokenNumber: tokenNum, date: new Date().toISOString().slice(0,10), created: Date.now(), status:'OPEN', customerName:'', customerPhone:'', lines:[], payments:[], invoice:null, isParcel:false};
+        tokens.push(token);
+        currentTokenId = id;
+        // Reset form inputs for a new token
+        document.getElementById('customer-name').value = '';
+        document.getElementById('customer-phone').value = '';
+        document.getElementById('item-qty').value = 1;
+        document.getElementById('discount').value = '';
+        updateCounterView();
+    }
+    function populateItemSelect() {
+        const category = document.getElementById('category-select').value;
+        const select = document.getElementById('item-select');
+        select.innerHTML = '';
+        items.filter(item => item.category === category).forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item.id;
+            opt.textContent = `${item.name} – ${formatCurrency(item.price)}`;
+            select.appendChild(opt);
+        });
+    }
+    function updateCounterView() {
+        // refresh category options and tables
+        populateCategoryOptions('category-select');
+        populateItemSelect();
+        // populate order lines if token exists
+        const token = tokens.find(t => t.id === currentTokenId);
+        if(!token) {
+            refreshOrderList();
+            return;
+        }
+        // Update heading showing token number and status
+        const heading = document.getElementById('counter-order-heading');
+        if(heading) {
+            heading.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+        }
+        const nameInput = document.getElementById('customer-name');
+        const phoneInput = document.getElementById('customer-phone');
+        if(nameInput) {
+            nameInput.value = token.customerName || '';
+            // Keep token name in sync with user edits
+            nameInput.oninput = function() {
+                token.customerName = this.value.trim();
+            };
+        }
+        if(phoneInput) {
+            phoneInput.value = token.customerPhone || '';
+            // Keep token phone in sync with user edits
+            phoneInput.oninput = function() {
+                token.customerPhone = this.value.trim();
+            };
+        }
+        // Sync parcel checkbox with token state
+        const ptoggle = document.getElementById('parcel-toggle');
+        if(ptoggle) {
+            ptoggle.checked = !!token.isParcel;
+        }
+        const counterBody = document.querySelector('#counter-lines-table tbody');
+        const kitchenBody = document.querySelector('#kitchen-lines-table tbody');
+        counterBody.innerHTML = '';
+        kitchenBody.innerHTML = '';
+        token.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if(!item) return;
+            const total = formatCurrency(item.price * line.qty);
+            if(item.source === 'counter') {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.name}</td>
+                    <td>${line.qty}</td>
+                    <td>${total}</td>
+                    <td><button class="action secondary" onclick="editLineQuantity('${token.id}','${line.id}')">Edit</button> <button class="action danger" onclick="deleteLine('${token.id}','${line.id}')">Remove</button></td>
+                `;
+                counterBody.appendChild(tr);
+            } else {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${item.name}</td>
+                    <td>${line.qty}</td>
+                    <td>${total}</td>
+                    <td>${line.status}</td>
+                    <td><button class="action secondary" onclick="editLineQuantity('${token.id}','${line.id}')">Edit</button> <button class="action danger" onclick="deleteLine('${token.id}','${line.id}')">Remove</button></td>
+                `;
+                kitchenBody.appendChild(tr);
+            }
+        });
+        // Refresh order list whenever view updates
+        refreshOrderList();
+    }
+
+    // Set parcel flag on current token when checkbox toggled
+    function setParcelFlag() {
+        // Called when the parcel/takeaway checkbox changes state.  Persist
+        // the flag on the currently selected token and refresh the view.
+        const token = tokens.find(t => t.id === currentTokenId);
+        if(!token) return;
+        const checkbox = document.getElementById('parcel-toggle');
+        if(!checkbox) return;
+        token.isParcel = checkbox.checked;
+        // When parcel flag changes we need to recalculate totals if billing
+        updateCounterView();
+        if(currentBillingToken && currentBillingToken.id === token.id) {
+            updateBillingTotals();
+        }
+    }
+    function addItemToToken() {
+        const token = tokens.find(t => t.id === currentTokenId);
+        if(!token) return;
+        token.customerName = document.getElementById('customer-name').value.trim();
+        token.customerPhone = document.getElementById('customer-phone').value.trim();
+        const itemId = document.getElementById('item-select').value;
+        const qty = parseInt(document.getElementById('item-qty').value);
+        if(!itemId || qty < 1) return;
+        // If the same item is already in the order, simply increase its quantity
+        const existing = token.lines.find(l => l.itemId === itemId);
+        if (existing) {
+            existing.qty += qty;
+        } else {
+            const lineId = 'line' + (token.lines.length + 1);
+            const item = items.find(i => i.id === itemId);
+            token.lines.push({id: lineId, itemId, qty, status: item.source === 'kitchen' ? 'pending' : 'ready'});
+        }
+        updateCounterView();
+        refreshKdsTable();
+    }
+    function editLineQuantity(tokenId, lineId) {
+        const token = tokens.find(t => t.id === tokenId);
+        if(!token) return;
+        const line = token.lines.find(l => l.id === lineId);
+        if(!line) return;
+        const newQty = prompt('Enter new quantity', line.qty);
+        if(newQty !== null) {
+            const q = parseInt(newQty);
+            if(q > 0) {
+                line.qty = q;
+            }
+            updateCounterView();
+            refreshKdsTable();
+            // If this line is being edited from within the billing modal, refresh billing view
+            if(currentBillingToken && currentBillingToken.id === tokenId) {
+                openBillingModal(tokenId);
+            }
+        }
+    }
+    function deleteLine(tokenId, lineId) {
+        const token = tokens.find(t => t.id === tokenId);
+        if(!token) return;
+        const idx = token.lines.findIndex(l => l.id === lineId);
+        if(idx >= 0) {
+            token.lines.splice(idx,1);
+            updateCounterView();
+            refreshKdsTable();
+        }
+    }
+
+    /* Counter modal and order list functions */
+    function openCounterModal(tokenId) {
+        // Open a modal for creating a new order or editing an existing one
+        let token;
+        if(tokenId) {
+            token = tokens.find(t => t.id === tokenId);
+            if(!token) return;
+            currentTokenId = tokenId;
+        } else {
+            // create a new token and select it
+            createNewToken();
+            token = tokens.find(t => t.id === currentTokenId);
+        }
+        // Update the heading to show token number and status
+        const heading = document.getElementById('counter-order-heading');
+        if(heading && token) {
+            heading.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+        }
+        // Move the counter-order element into the modal
+        const element = document.getElementById('counter-order');
+        movedElement = element;
+        movedOriginalParent = document.getElementById('counter-order-container');
+        element.style.display = 'block';
+        // Clear any existing modal content and append
+        const content = document.getElementById('modal-content');
+        content.innerHTML = '';
+        content.appendChild(element);
+        // Show modal
+        showModal();
+        // Refresh view for this token
+        updateCounterView();
+    }
+
+    function refreshOrderList() {
+        // Populate the order-list with cards for each token, newest first
+        const container = document.getElementById('order-list');
+        if(!container) return;
+        container.innerHTML = '';
+        // Sort tokens by creation time descending
+        const sorted = tokens.slice().sort((a,b) => {
+            const ta = a.created || 0;
+            const tb = b.created || 0;
+            return tb - ta;
+        });
+        sorted.forEach(token => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const header = document.createElement('h4');
+            header.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+            card.appendChild(header);
+            // Show a brief summary: number of items and maybe total value
+            const totalItems = token.lines.reduce((sum,l) => sum + l.qty, 0);
+            const summary = document.createElement('p');
+            let summaryText = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
+            // indicate whether this order is takeaway or dine‑in
+            summaryText += ` | ${token.isParcel ? 'Parcel' : 'Dine‑in'}`;
+            summary.textContent = summaryText;
+            card.appendChild(summary);
+            // Edit button
+            if(token.status !== 'PAID') {
+                const btnEdit = document.createElement('button');
+                btnEdit.className = 'action primary';
+                btnEdit.textContent = 'Edit';
+                btnEdit.onclick = function() { openCounterModal(token.id); };
+                card.appendChild(btnEdit);
+            }
+            container.appendChild(card);
+        });
+    }
+
+    /* Kitchen functions */
+    function refreshKdsCards() {
+        // Populate kitchen cards with only kitchen lines, newest tokens first
+        const container = document.getElementById('kds-cards');
+        if(!container) return;
+        container.innerHTML = '';
+        // Filter tokens that have at least one kitchen item
+        const filtered = tokens.filter(token => {
+            return token.lines.some(l => {
+                const item = items.find(i => i.id === l.itemId);
+                return item && item.source === 'kitchen';
+            });
+        });
+        // Sort by created descending
+        filtered.sort((a,b) => {
+            const ta = a.created || 0;
+            const tb = b.created || 0;
+            return tb - ta;
+        });
+        filtered.forEach(token => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            const header = document.createElement('h4');
+            header.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+            card.appendChild(header);
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            thead.innerHTML = '<tr><th>Item</th><th>Qty</th><th>Status</th><th>Actions</th></tr>';
+            table.appendChild(thead);
+            const tbody = document.createElement('tbody');
+            token.lines.forEach(line => {
+                const item = items.find(i => i.id === line.itemId);
+                if(!item || item.source !== 'kitchen') return;
+                const tr = document.createElement('tr');
+                // Build action buttons depending on status; disable all actions if token is already paid
+                let actionsHtml = '';
+                if(token.status !== 'PAID') {
+                    if(line.status === 'pending') {
+                        actionsHtml += `<button class="action primary" onclick="updateKdsLineStatus('${token.id}','${line.id}','in_progress')">Start</button> `;
+                    }
+                    if(line.status !== 'fulfilled') {
+                        actionsHtml += `<button class="action success" onclick="updateKdsLineStatus('${token.id}','${line.id}','fulfilled')">Fulfil</button> `;
+                    }
+                    if(line.status !== 'unable') {
+                        actionsHtml += `<button class="action danger" onclick="updateKdsLineStatus('${token.id}','${line.id}','unable')">Unable</button>`;
+                    }
+                }
+                // Append packaging label so kitchen knows whether to plate or parcel
+                const pkgLabel = token.isParcel ? ' (Parcel)' : ' (Plate)';
+                tr.innerHTML = `<td>${item.name}${pkgLabel}</td><td>${line.qty}</td><td>${line.status}</td><td>${actionsHtml}</td>`;
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            card.appendChild(table);
+            container.appendChild(card);
+        });
+    }
+    // Alias old refresh function to new implementation for backward compatibility
+    function refreshKdsTable() {
+        refreshKdsCards();
+    }
+    function updateKdsLineStatus(tokenId, lineId, status) {
+        const token = tokens.find(t => t.id === tokenId);
+        if(!token) return;
+        const line = token.lines.find(l => l.id === lineId);
+        if(!line) return;
+        line.status = status;
+        refreshKdsTable();
+        updateCounterView();
+        // if all kitchen lines are fulfilled or unable, mark token ready for billing
+        const kitchenLines = token.lines.filter(l => {
+            const item = items.find(i => i.id === l.itemId);
+            return item && item.source === 'kitchen';
+        });
+        if(kitchenLines.length > 0 && kitchenLines.every(l => l.status === 'fulfilled' || l.status === 'unable')) {
+            token.status = 'READY_FOR_BILLING';
+        }
+    }
+
+    /* Cash counter functions */
+    let currentBillingToken = null;
+    function refreshInvoiceList() {
+        // Populate the invoice-list with tokens (invoices) in descending order
+        const container = document.getElementById('invoice-list');
+        if(!container) return;
+        container.innerHTML = '';
+        const sorted = tokens.slice().sort((a,b) => {
+            const ta = a.created || 0;
+            const tb = b.created || 0;
+            return tb - ta;
+        });
+        sorted.forEach(token => {
+            // Only show tokens that have at least one line (i.e., orders created)
+            if(token.lines.length === 0) return;
+            const card = document.createElement('div');
+            card.className = 'card';
+            const header = document.createElement('h4');
+            header.textContent = `Token ${token.tokenNumber} – ${token.status}`;
+            card.appendChild(header);
+            // If the token is paid, show invoice number and view button
+            if(token.status === 'PAID' && token.invoice) {
+                const p = document.createElement('p');
+                p.innerHTML = `<strong>Invoice:</strong> ${token.invoice.number}`;
+                card.appendChild(p);
+                // Provide a button to view the invoice
+                const btnView = document.createElement('button');
+                btnView.className = 'action secondary';
+                btnView.textContent = 'View Invoice';
+                btnView.onclick = function() { viewInvoice(token.id); };
+                card.appendChild(btnView);
+            }
+            // For tokens that are not paid, show a make payment button
+            if(token.status !== 'PAID') {
+                const btn = document.createElement('button');
+                btn.className = 'action primary';
+                btn.textContent = 'Make Payment';
+                btn.onclick = function() { openBillingModal(token.id); };
+                card.appendChild(btn);
+            }
+            container.appendChild(card);
+        });
+    }
+    // The old refreshTokenSelect, search and load functions are obsolete for the new UI, but kept for reference
+    function refreshTokenSelect() {
+        // For compatibility, just call refreshInvoiceList()
+        refreshInvoiceList();
+    }
+    function searchTokenForBilling() {}
+    function loadTokenForBilling() {}
+
+    function openBillingModal(tokenId) {
+        // Load the specified token into the billing view and open it in a modal
+        const token = tokens.find(t => t.id === tokenId);
+        if(!token) return;
+        currentBillingToken = token;
+        // Populate heading
+        document.getElementById('billing-token-number').textContent = token.tokenNumber;
+        // Populate billing lines table
+        const tbody = document.querySelector('#billing-lines-table tbody');
+        tbody.innerHTML = '';
+        token.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if(!item) return;
+            const total = formatCurrency(item.price * line.qty);
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.name}</td>
+                <td>${line.qty}</td>
+                <td>${total}</td>
+                <td>${line.status}</td>
+                <td><button class="action secondary" onclick="editLineQuantity('${token.id}','${line.id}')">Edit</button> <button class="action danger" onclick="deleteLine('${token.id}','${line.id}'); openBillingModal('${token.id}');">Remove</button></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        // Reset discount and compute totals
+        document.getElementById('discount').value = '';
+        updateBillingTotals();
+        // Move the billing-view into the modal
+        const element = document.getElementById('billing-view');
+        movedElement = element;
+        movedOriginalParent = document.getElementById('billing-container');
+        element.style.display = 'block';
+        const content = document.getElementById('modal-content');
+        content.innerHTML = '';
+        content.appendChild(element);
+        showModal();
+    }
+    function parseDiscount(str, subtotal) {
+        if(!str) return 0;
+        str = str.trim();
+        if(str.endsWith('%')) {
+            const pct = parseFloat(str.slice(0, -1));
+            if(isNaN(pct)) return 0;
+            return subtotal * (pct / 100);
+        } else {
+            const val = parseFloat(str);
+            return isNaN(val) ? 0 : val;
+        }
+    }
+    function updateBillingTotals() {
+        const token = currentBillingToken;
+        if(!token) return;
+        let baseTotal = 0;
+        let sgstTotal = 0;
+        let cgstTotal = 0;
+        let inclTotal = 0;
+        let parcelTotal = 0;
+        token.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if(!item) return;
+            const breakdown = computeLineBreakdown(item.price, line.qty, item.gst);
+            baseTotal += breakdown.base;
+            sgstTotal += breakdown.sgst;
+            cgstTotal += breakdown.cgst;
+            inclTotal += breakdown.total;
+            // accumulate parcel charges only if this is a takeaway order
+            if(token.isParcel) {
+                parcelTotal += (item.parcelCharge || 0) * line.qty;
+            }
+        });
+        const discountStr = document.getElementById('discount').value;
+        const discount = parseDiscount(discountStr, inclTotal);
+        // payable equals inclusive total minus discount plus any parcel charges
+        const payable = Math.max(0, inclTotal - discount + parcelTotal);
+        document.getElementById('total-base').textContent = formatCurrency(baseTotal);
+        document.getElementById('total-sgst').textContent = formatCurrency(sgstTotal);
+        document.getElementById('total-cgst').textContent = formatCurrency(cgstTotal);
+        document.getElementById('total-parcel').textContent = formatCurrency(parcelTotal);
+        document.getElementById('total-discount').textContent = '-' + formatCurrency(discount);
+        document.getElementById('total-payable').textContent = formatCurrency(payable);
+        document.getElementById('payment-amount').value = payable.toFixed(2);
+    }
+    function makePayment() {
+        const token = currentBillingToken;
+        if(!token) return;
+        const payableStr = document.getElementById('total-payable').textContent.replace('₹','');
+        const payable = parseFloat(payableStr);
+        const paid = parseFloat(document.getElementById('payment-amount').value);
+        if(isNaN(paid) || paid < payable) {
+            alert('Insufficient payment');
+            return;
+        }
+        const method = document.getElementById('payment-method').value;
+        token.payments.push({method, amount: paid, reference: ''});
+        token.status = 'PAID';
+        // compute inclusive total and parcel charges for invoice storage
+        let inclTotal = 0;
+        let parcelTotal = 0;
+        token.lines.forEach(line => {
+            const item = items.find(i => i.id === line.itemId);
+            if(item) {
+                inclTotal += item.price * line.qty;
+                if(token.isParcel) parcelTotal += (item.parcelCharge || 0) * line.qty;
+            }
+        });
+        // determine discount value using the same logic as totals
+        const discountVal = parseDiscount(document.getElementById('discount').value, inclTotal);
+        const invoiceNo = 'INV-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + ('0000'+invoiceCounter++).slice(-4);
+        // assign invoice with full context including parcel info.  Store created as ISO string
+        token.invoice = {
+            number: invoiceNo,
+            created: new Date().toISOString(),
+            lines: token.lines.slice(),
+            discount: discountVal,
+            parcelTotal: parcelTotal,
+            isParcel: token.isParcel,
+            total: Math.max(0, inclTotal - discountVal + parcelTotal)
+        };
+        // display receipt
+        displayReceipt(token);
+        // Refresh invoice list after payment to update status
+        refreshInvoiceList();
+        alert('Payment recorded. Token closed.');
+    }
+    function displayReceipt(token) {
+        // Populate the receipt container with a formatted invoice
+        const div = document.getElementById('receipt-content');
+        div.innerHTML = generateInvoiceHTML(token);
+        // Append send invoice controls after the invoice, plus download PDF
+        const btnContainer = document.createElement('div');
+        btnContainer.style.marginTop = '0.5rem';
+        // Send message button
+        const btnMsg = document.createElement('button');
+        btnMsg.className = 'action primary';
+        btnMsg.textContent = 'Send Invoice Message';
+        btnMsg.onclick = function() { sendInvoiceMessage(token.id); };
+        // WhatsApp button
+        const btnWhats = document.createElement('button');
+        btnWhats.className = 'action success';
+        btnWhats.textContent = 'WhatsApp';
+        btnWhats.style.marginLeft = '0.5rem';
+        btnWhats.onclick = function() { sendInvoiceWhatsApp(token.id); };
+        // Download PDF button
+        const btnDownload = document.createElement('button');
+        // Style the download button like the Send Invoice button (blue)
+        btnDownload.className = 'action primary';
+        btnDownload.style.marginLeft = '0.5rem';
+        btnDownload.textContent = 'Download PDF';
+        btnDownload.onclick = function() { downloadInvoice(token.id); };
+        btnContainer.appendChild(btnMsg);
+        btnContainer.appendChild(btnWhats);
+        btnContainer.appendChild(btnDownload);
+        div.appendChild(btnContainer);
+        document.getElementById('receipt').style.display = 'block';
+    }
+
+    // === Modal framework ===
+    let movedElement = null;
+    let movedOriginalParent = null;
+    function showModal() {
+        const overlay = document.getElementById('modal-overlay');
+        overlay.style.display = 'flex';
+    }
+    function closeModal() {
+        const overlay = document.getElementById('modal-overlay');
+        overlay.style.display = 'none';
+        // If we moved a DOM element into the modal (e.g., counter-order or billing-view), restore it
+        if (movedElement && movedOriginalParent) {
+            movedElement.style.display = 'none';
+            movedOriginalParent.appendChild(movedElement);
+            movedElement = null;
+            movedOriginalParent = null;
+        }
+        // Clear modal content
+        document.getElementById('modal-content').innerHTML = '';
+        // Refresh lists after closing modal (in case data was modified)
+        refreshOrderList();
+        refreshKdsTable();
+        refreshInvoiceList();
+        refreshOwnerOrdersList();
+    }
+    // Attach close button handler
+    window.addEventListener('DOMContentLoaded', function() {
+        const closeBtn = document.getElementById('modal-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', closeModal);
+        }
+        // close when clicking outside modal-box
+        const overlay = document.getElementById('modal-overlay');
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) {
+                closeModal();
+            }
+        });
+    });
+
+    // initialise on load
+    seedMenu();
+    refreshItemsTable();
+    // ensure default category select values filled
+    populateCategoryOptions('category-select');
+    populateItemSelect();
+    // initialise lists for counter, kitchen, and cash
+    refreshOrderList();
+    refreshKdsTable();
+    refreshInvoiceList();
+    </script>
+
+    <!-- Modal overlay used across tabs -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <button id="modal-close" class="modal-close">&times;</button>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+</body>
+</html>
